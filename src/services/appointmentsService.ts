@@ -30,6 +30,44 @@ export const getAppointmentById = async (id: number) => {
 export const createAppointment = async (data: CreateAppointmentInput) => {
   const { client_id, provider_id, start_date, end_date, title, description } =
     data;
+
+  if (!client_id || !provider_id || !start_date || !end_date || !title) {
+    throw new Error(
+      "client_id, provider_id, start_date, end_date e title são obrigatórios"
+    );
+  }
+  const start = new Date(start_date);
+  const end = new Date(end_date);
+  if (start >= end) {
+    throw new Error("A data inicial deve ser anterior à data final");
+  }
+  const durationMinutes = (end.getTime() - start.getTime()) / (1000 * 60);
+  if (durationMinutes < 30) {
+    throw new Error("O agendamento deve ter no mínimo 30 minutos de duração");
+  }
+  if (durationMinutes > 60) {
+    throw new Error("O agendamento deve ter no máximo 1 hora de duração");
+  }
+  const startHour = start.getUTCHours() - 3; // UTC-3 (Brasília)
+  const endHour = end.getUTCHours() - 3;
+  if (
+    startHour < 8 ||
+    endHour > 18 ||
+    (endHour === 18 && end.getMinutes() > 0)
+  ) {
+    throw new Error(
+      "O agendamento deve estar dentro do horário comercial: 08:00 às 18:00"
+    );
+  }
+  const validMinutes = [0, 30];
+  if (
+    !validMinutes.includes(start.getMinutes()) ||
+    !validMinutes.includes(end.getMinutes())
+  ) {
+    throw new Error(
+      "O agendamento deve começar e terminar em horários fechados (00 ou 30 minutos)"
+    );
+  }
   const clientConflict = await AppointmentModel.findConflictingAppointment(
     client_id,
     start_date,
@@ -41,52 +79,33 @@ export const createAppointment = async (data: CreateAppointmentInput) => {
       "O cliente já possui um agendamento neste intervalo de horário."
     );
   }
-  const duplicate = await AppointmentModel.findExactDuplicate(
-    client_id,
-    provider_id,
-    start_date,
-    end_date
-  );
-
-  if (duplicate) {
-    throw new Error("Este agendamento já foi criado anteriormente.");
-  }
-
   const providerConflict = await AppointmentModel.findConflictingAppointment(
     provider_id,
     start_date,
     end_date,
     "provider_id"
   );
-
   if (providerConflict) {
     throw new Error(
       "O prestador de serviço já possui um agendamento neste intervalo de horário."
     );
   }
+  const duplicate = await AppointmentModel.findExactDuplicate(
+    client_id,
+    provider_id,
+    start_date,
+    end_date
+  );
+  if (duplicate) {
+    throw new Error("Este agendamento já foi criado anteriormente.");
+  }
   const client = await UserModel.getUserById(client_id);
-
   if (!client || client.tipo !== "client") {
     throw new Error("Cliente inválido");
   }
-
   const provider = await UserModel.getUserById(provider_id);
-
   if (!provider || provider.tipo !== "provider") {
     throw new Error("Prestador de serviço inválido");
-  }
-
-  if (!client_id || !provider_id || !start_date || !end_date || !title) {
-    throw new Error(
-      "client_id, provider_id, start_date, end_date e title são obrigatórios"
-    );
-  }
-
-  if (new Date(start_date) >= new Date(end_date)) {
-    throw new Error("start_date deve ser anterior a end_date");
-  }
-  if (new Date(end_date) <= new Date(start_date)) {
-    throw new Error("A data final deve ser posterior à data inicial");
   }
   const appointment = await AppointmentModel.createAppointment({
     client_id,
@@ -96,7 +115,6 @@ export const createAppointment = async (data: CreateAppointmentInput) => {
     title,
     description,
   });
-
   return appointment;
 };
 
